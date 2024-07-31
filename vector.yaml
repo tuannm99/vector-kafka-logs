@@ -1,0 +1,16 @@
+sources:
+    my_log_source:
+        type: file
+        include:
+            - /var/log/myapp/my_app.log
+        read_from: beginning
+
+sinks:
+    my_kafka_sink:
+        type: kafka
+        inputs:
+            - my_log_source
+        bootstrap_servers: kafka1:29092
+        topic: logs_topic
+        encoding:
+            codec: json
