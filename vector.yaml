@@ -2,23 +2,78 @@ sources:
     my_log_source:
         type: file
         include:
-            - /var/log/myapp/my_app.log
+            - /var/logs/my_app.log
         read_from: beginning
 
-sinks:
-    my_kafka_sink:
-        type: kafka
+transforms:
+    parse_logs:
+        type: 'remap'
         inputs:
-            - my_log_source
-        bootstrap_servers: kafka1:29092
-        topic: logs_topic
-        encoding:
-            codec: json
+            - 'my_log_source'
+        source: >-
+            . = parse_regex!(.message, r'^(?P<host>\S+)\s(?P<ip_address>\S+)\s-\s\[(?P<timestamp>[^\]]+)\]\s"(?P<request>[^"]+)"\s(?P<status_code>\d+)\s(?P<response_size>\d+)\s-\s"(?P<user_agent>[^"]+)"\s(?P<session_id>[^\s]+)\s-\s(?P<log_file_path>[^\s]+)\s(?P<extra_field1>\d+)\s(?P<extra_field2>[\d.]+)\s(?P<md5>[^\s]+)$');
+
+            encode_json({
+                "host": .host,
+                "ip_address": .ip_address,
+                "timestamp": .timestamp,
+                "request": .request,
+                "status_code": .status_code,
+                "response_size": .response_size,
+                "user_agent": .user_agent,
+                "md5_hash": .md5_hash,
+                "log_file_path": .log_file_path,
+                "log_id": .log_id,
+                "extra_field1": .extra_field1,
+                "extra_field2": .extra_field2,
+                "md5": .md5
+            });
+
+    enrich_with_file_logs:
+        type: lua
+        inputs:
+            - 'parse_logs'
+        version: '2'
+        source: >-
+            function process(event, emit)
+                local file_path = event.log_file_path
+                print("File path: ", file_path)
+
+                if file_path == nil or file_path == "" then
+                    event.file_content = "No file path provided"
+                    print("aaaaaaaaaa")
+                    print(event.file_content)
+                    return emit(event)
+                end
+
+                local file, err = io.open(file_path, "r")
+                if file then
+                    local file_content = file:read("*all")
+                    file:close()
+                    event.file_content = file_content
+                else
+                    event.file_content = "File not found: " .. (err or "Unknown error")
+                end
+
+                return emit(event)
+            end
+        hooks:
+            process: 'process'
+
+sinks:
+    # my_kafka_sink:
+    #     type: kafka
+    #     inputs:
+    #         - enrich_with_file_logs
+    #     bootstrap_servers: kafka1:29092
+    #     topic: logs_topic
+    #     encoding:
+    #         codec: json
 
     my_redis_sink:
         type: redis
         inputs:
-            - my_log_source
+            - enrich_with_file_logs
         data_type: list
         endpoint: redis://redis-vector:6379/0
         key: syslog:test
