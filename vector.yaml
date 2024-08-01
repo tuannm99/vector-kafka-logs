@@ -14,3 +14,13 @@ sinks:
         topic: logs_topic
         encoding:
             codec: json
+
+    my_redis_sink:
+        type: redis
+        inputs:
+            - my_log_source
+        data_type: list
+        endpoint: redis://redis-vector:6379/0
+        key: syslog:test
+        encoding:
+            codec: json
